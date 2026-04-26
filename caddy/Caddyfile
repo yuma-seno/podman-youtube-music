@@ -1,0 +1,23 @@
+{
+    email {env.ACME_EMAIL}
+    https_port 8443
+    admin off
+}
+
+{env.DOMAIN}:8443 {
+    tls {
+        dns duckdns {env.DUCKDNS_TOKEN}
+    }
+
+    # 1. メディア操作パネルとWebhookへのアクセス
+    # https://[ドメイン]:8443/media/ にアクセスした場合
+    handle_path /media* {
+        reverse_proxy chromium:8080
+    }
+
+    # 2. メインのKasmVNC画面へのアクセス
+    # 上記以外のすべてのアクセス (デフォルト)
+    handle {
+        reverse_proxy chromium:3000
+    }
+}
