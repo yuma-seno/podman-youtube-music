@@ -1,4 +1,4 @@
-FROM lscr.io/linuxserver/chromium:latest
+FROM lscr.io/linuxserver/firefox:latest
 # rootless Podman では PID 1 が UID 1000 として動作するため、
 # setuid バイナリ lsiown を誰でも実行できるようにパーミッションを修正
 RUN chmod o+x /usr/bin/lsiown

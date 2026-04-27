@@ -73,7 +73,7 @@ DUCKDNS_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ACME_EMAIL=your@email.com
 ```
 
-### 2. 起動
+### 2. 初回起動
 
 ```bash
 ./start.sh
@@ -89,13 +89,49 @@ https://[DOMAIN]:8443/
 
 KasmVNCの画面が表示されたら、YouTube Musicにログインします。
 
+### 4. systemd による自動起動・自動停止の設定
+
+PC起動時に自動でコンテナを起動し、シャットダウン時に Chrome を正常終了させてからコンテナを停止します。
+**Cookie の永続化（ログイン維持）に必須の設定です。**
+
+```bash
+./install.sh
+```
+
+インストーラーが以下を自動で行います：
+- systemd ユーザーサービスの生成・インストール
+- PC起動時の自動スタートを有効化
+- 既存の自動起動設定（`~/.profile` 等）との重複チェック
+
+> **ログアウト後もコンテナを動かし続けたい場合**（サーバー用途）は追加で実行：
+> ```bash
+> loginctl enable-linger
+> ```
+
+---
+
+## 日常的な操作
+
+| 操作 | コマンド |
+|---|---|
+| 再起動（更新時など） | `./start.sh` |
+| **正常停止**（シャットダウン前） | `./stop.sh` または `systemctl --user stop podman-youtube-music` |
+| 状態確認 | `systemctl --user status podman-youtube-music` |
+| アンインストール | `./uninstall.sh` |
+
+> [!IMPORTANT]
+> PC をシャットダウンする場合は systemd が自動で `stop.sh` を実行します。
+> ただし手動で停止するときは必ず `./stop.sh` を使ってください。
+> `podman stop` や `podman-compose down` を直接実行すると Chrome が強制終了（SIGKILL）され、
+> Cookie がディスクに書き込まれずにログアウト状態になります。
+
 ---
 
 ## 起動スクリプト (`start.sh`) の動作
 
 ```
 [0/4] 実行ユーザー確認       → UID/GID を取得してコンテナに渡す
-[1/4] コンテナ停止・削除     → 既存のコンテナをクリーンアップ
+[1/4] コンテナ停止・削除     → Chrome を SIGTERM で正常終了させてから停止
 [2/4] ネットワーク削除       → aardvark-dns のリセット（名前解決の不整合を防ぐ）
 [3/4] ロックファイル掃除      → X11/VNC/Chrome の残留ゴミを削除
 [4/4] コンテナ起動           → podman-compose up -d
@@ -109,6 +145,10 @@ KasmVNCの画面が表示されたら、YouTube Musicにログインします。
 .
 ├── compose.yaml                        # コンテナ定義
 ├── start.sh                            # 起動スクリプト
+├── stop.sh                             # 正常停止スクリプト（Cookie 保存のため必須）
+├── install.sh                          # systemd サービスのインストール
+├── uninstall.sh                        # systemd サービスのアンインストール
+├── podman-youtube-music.service        # systemd ユーザーサービステンプレート
 ├── .env.example                        # 環境変数テンプレート
 ├── caddy/
 │   ├── Dockerfile                      # DuckDNSモジュール付きCaddyビルド

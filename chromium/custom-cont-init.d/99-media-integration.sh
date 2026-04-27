@@ -13,8 +13,10 @@ YouTube Music リモコンサーバー
 import glob
 import http.server
 import json
-import re
+import os
+import shlex
 import socketserver
+import stat
 import subprocess
 import sys
 import time
@@ -28,6 +30,7 @@ HTML_CONTENT = """\
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>YouTube Music リモコン</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='28' y='8' width='44' height='84' rx='10' fill='%23222'/%3E%3Ccircle cx='50' cy='30' r='9' fill='%23ff4444'/%3E%3Crect x='36' y='52' width='28' height='5' rx='2.5' fill='%23666'/%3E%3Crect x='36' y='63' width='28' height='5' rx='2.5' fill='%23666'/%3E%3Crect x='36' y='74' width='28' height='5' rx='2.5' fill='%23666'/%3E%3C/svg%3E">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -239,132 +242,67 @@ HTML_CONTENT = """\
 </html>
 """
 
-# ─── CDP 共通ヘルパー ─────────────────────────────────────────────────────────
-def _cdp_ws():
-    """YTM タブの WebSocket 接続を返す。見つからなければ None"""
-    try:
-        import websocket as _ws_mod
-    except ImportError:
-        return None
-    try:
-        with urllib.request.urlopen('http://127.0.0.1:9222/json', timeout=2) as resp:
-            tabs = json.loads(resp.read().decode())
-        yt = next(
-            (t for t in tabs
-             if 'music.youtube.com' in t.get('url', '')
-             and t.get('type') == 'page'),
-            None,
-        )
-        if not yt:
-            return None
-        ws_url = yt['webSocketDebuggerUrl'].replace('localhost', '127.0.0.1')
-        return _ws_mod.create_connection(ws_url, timeout=3)
-    except Exception as e:
-        print(f'[cdp] 接続エラー: {e}', file=sys.stderr)
-        return None
-
-def _cdp_eval(ws, expr, seq_id=1):
-    """Runtime.evaluate を実行して value を返す"""
-    ws.send(json.dumps({
-        'id': seq_id,
-        'method': 'Runtime.evaluate',
-        'params': {'expression': expr, 'returnByValue': True},
-    }))
-    res = json.loads(ws.recv())
-    return res.get('result', {}).get('result', {}).get('value')
-
-# ─── YouTube Music DOM制御 (直接要素を指定してクリック) ──────────────────────
-def click_ytm_element(selector):
-    """CSSセレクタで指定した要素をクリックする"""
-    ws = _cdp_ws()
-    if not ws:
-        return False
-    try:
-        expr = f'(()=>{{var e=document.querySelector("{selector}");if(e){{e.click();return true;}}return false;}})()'
-        result = _cdp_eval(ws, expr)
-        print(f'[cdp] click "{selector}" → {result}', file=sys.stderr)
-        return bool(result)
-    except Exception as e:
-        print(f'[cdp] click エラー: {e}', file=sys.stderr)
-        return False
-    finally:
-        try:
-            ws.close()
-        except Exception:
-            pass
-
-def toggle_via_cdp():
-    """YTMの再生/一時停止ボタンを直接クリックする"""
-    return click_ytm_element('ytmusic-player-bar #play-pause-button')
-
-def get_ytm_status():
-    """CDPで再生状態と曲名を取得して dict で返す (DOMから直接抽出)"""
-    ws = _cdp_ws()
-    if not ws:
-        return None
-    try:
-        expr = '''(() => {
-            var v = document.querySelector("video");
-            var t = document.querySelector("ytmusic-player-bar .title");
-            var a = document.querySelector("ytmusic-player-bar .subtitle");
-            return JSON.stringify({
-                playing: v ? !v.paused : null,
-                title: t ? t.textContent.trim() : null,
-                artist: a ? a.textContent.trim() : null
-            });
-        })()'''
-        raw_json = _cdp_eval(ws, expr)
-        if raw_json:
-            return json.loads(raw_json)
-        return None
-    except Exception as e:
-        print(f'[cdp] status エラー: {e}', file=sys.stderr)
-        return None
-    finally:
-        try:
-            ws.close()
-        except Exception:
-            pass
-
-# ─── Toggle: playerctl (MPRIS フォールバック) ─────────────────────────────────
+# ─── playerctl (MPRIS2 via DBus) ─────────────────────────────────────────────
 def _get_dbus_addr():
-    for env_path in glob.glob('/proc/*/environ'):
+    """abc ユーザー (uid=1000) の DBus セッションソケットを /tmp/dbus-* から探す"""
+    for s in glob.glob('/tmp/dbus-*'):
         try:
-            data = open(env_path, 'rb').read()
-            env = {}
-            for seg in data.split(b'\x00'):
-                if b'=' in seg:
-                    k, v = seg.split(b'=', 1)
-                    env[k.decode(errors='ignore')] = v.decode(errors='ignore')
-            status_path = env_path.replace('environ', 'status')
-            uid_m = re.search(r'Uid:\s+(\d+)', open(status_path).read())
-            if uid_m and int(uid_m.group(1)) == 999 and 'DBUS_SESSION_BUS_ADDRESS' in env:
-                return env['DBUS_SESSION_BUS_ADDRESS']
+            st = os.stat(s)
+            if st.st_uid == 1000 and stat.S_ISSOCK(st.st_mode):
+                return f'unix:path={s}'
         except Exception:
-            continue
+            pass
     return None
 
-def toggle_via_playerctl():
+def _playerctl(args):
+    """abc ユーザーとして playerctl コマンドを実行して (ok, stdout) を返す"""
     addr = _get_dbus_addr()
-    if not addr: return False
-    env = {'DBUS_SESSION_BUS_ADDRESS': addr, 'PATH': '/usr/local/bin:/usr/bin:/bin'}
-    r = subprocess.run(
-        ['playerctl', '--player=chromium,Chromium,%any', 'play-pause'],
-        env=env, capture_output=True, timeout=3, cwd='/'
+    if not addr:
+        return False, ''
+    shell_cmd = (
+        f'DBUS_SESSION_BUS_ADDRESS={shlex.quote(addr)} '
+        f'playerctl --player=firefox,%any '
+        + ' '.join(shlex.quote(a) for a in args)
     )
-    return r.returncode == 0
+    r = subprocess.run(
+        ['su', 'abc', '-s', '/bin/sh', '-c', shell_cmd],
+        capture_output=True, timeout=3, cwd='/', text=True
+    )
+    return r.returncode == 0, r.stdout.strip()
+
+def get_ytm_status():
+    """playerctl (MPRIS2) で再生状態と曲名を取得"""
+    ok, status_str = _playerctl(['status'])
+    if not ok:
+        return None
+    playing = (status_str == 'Playing')
+    _, title  = _playerctl(['metadata', 'title'])
+    _, artist = _playerctl(['metadata', 'artist'])
+    return {
+        'playing': playing,
+        'title':   title  or None,
+        'artist':  artist or None,
+    }
 
 # ─── 統合制御 ─────────────────────────────────────────────────────────────────
 _is_playing = False
 
 def toggle_ytm():
     global _is_playing
-    ok = toggle_via_cdp() or toggle_via_playerctl()
+    ok, _ = _playerctl(['play-pause'])
     if ok:
         time.sleep(0.15)
         s = get_ytm_status()
         _is_playing = s['playing'] if s and s['playing'] is not None else (not _is_playing)
     return ok, _is_playing
+
+def next_track():
+    ok, _ = _playerctl(['next'])
+    return ok
+
+def prev_track():
+    ok, _ = _playerctl(['previous'])
+    return ok
 
 # ─── HTTP サーバー ────────────────────────────────────────────────────────────
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -403,7 +341,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == '/next':
-            ok = click_ytm_element('ytmusic-player-bar .next-button')
+            ok = next_track()
             body = json.dumps({'ok': ok}).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -411,7 +349,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == '/prev':
-            ok = click_ytm_element('ytmusic-player-bar .previous-button')
+            ok = prev_track()
             body = json.dumps({'ok': ok}).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -432,6 +370,33 @@ with socketserver.TCPServer(('0.0.0.0', 8080), Handler) as httpd:
 PYEOF
 
 chmod +x /usr/local/bin/media-server.py
+
+# ─── Selkies VNC ページのタイトル・アイコンカスタマイズ ─────────────────────────
+SELKIES_WEB="/usr/share/selkies/web"
+
+# index.html に <title> を追加（もし未設定なら）
+if [ -f "${SELKIES_WEB}/index.html" ] && ! grep -q "<title>" "${SELKIES_WEB}/index.html" 2>/dev/null; then
+    sed -i 's|</head>|<title>Youtube Music VNC</title></head>|' "${SELKIES_WEB}/index.html"
+fi
+
+# manifest.json の名前を更新
+if [ -f "${SELKIES_WEB}/manifest.json" ]; then
+    sed -i 's|"name": "Firefox"|"name": "Youtube Music VNC"|' "${SELKIES_WEB}/manifest.json"
+    sed -i 's|"short_name": "Firefox"|"short_name": "YTM"|' "${SELKIES_WEB}/manifest.json"
+fi
+
+# YouTube Music アイコンをダウンロードして icon.png を置き換え
+python3 - << 'ICONEOF'
+import urllib.request, sys
+try:
+    urllib.request.urlretrieve(
+        'https://music.youtube.com/img/favicon_144.png',
+        '/usr/share/selkies/web/icon.png'
+    )
+    print('[init] YouTube Music アイコンを設定しました', file=sys.stderr)
+except Exception as e:
+    print(f'[init] アイコン取得失敗 (デフォルト使用): {e}', file=sys.stderr)
+ICONEOF
 
 # ─── s6 サービス登録 ──────────────────────────────────────────────────────────
 mkdir -p /etc/services.d/svc-media-server

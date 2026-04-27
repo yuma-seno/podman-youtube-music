@@ -15,8 +15,11 @@ services:
       - PGID=${HOST_GID:-1000}
       - TZ=Asia/Tokyo
       - LC_ALL=ja_JP.UTF-8
-      # キオスクモードで YouTube Music を直接起動
-      - CHROME_CLI=--kiosk --no-first-run --disable-infobars --disable-notifications --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 --remote-allow-origins=* --no-sandbox --window-position=0,0 --password-store=basic ${URL}
+      # Firefox メインURLとCDP設定 (--kiosk は初回ログイン後に戻す)
+      - FIREFOX_CLI=--kiosk ${URL}
+      # 自動ログイン用 (省略可能 - .env に設定した場合のみ有効)
+      - GOOGLE_EMAIL=${GOOGLE_EMAIL:-}
+      - GOOGLE_PASSWORD=${GOOGLE_PASSWORD:-}
     volumes:
       - ./chromium/custom-cont-init.d:/custom-cont-init.d
       - ./config:/config
@@ -24,6 +27,7 @@ services:
       - "3000"   # Caddy からのみアクセス (外部非公開)
       - "8080"
     shm_size: "1gb"
+    stop_grace_period: 30s   # Chrome が Cookie を書き込むのに十分な時間を確保
     restart: unless-stopped
 
   # ─── Caddy リバースプロキシ (DuckDNS DNS-01 で Let's Encrypt 自動取得) ─────
