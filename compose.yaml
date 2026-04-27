@@ -16,7 +16,7 @@ services:
       - TZ=Asia/Tokyo
       - LC_ALL=ja_JP.UTF-8
       # キオスクモードで YouTube Music を直接起動
-      - CHROME_CLI=--kiosk --no-first-run --disable-infobars --disable-notifications --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 --remote-allow-origins=* --no-sandbox --window-position=0,0 ${URL}
+      - CHROME_CLI=--kiosk --no-first-run --disable-infobars --disable-notifications --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 --remote-allow-origins=* --no-sandbox --window-position=0,0 --password-store=basic ${URL}
     volumes:
       - ./chromium/custom-cont-init.d:/custom-cont-init.d
       - ./config:/config
