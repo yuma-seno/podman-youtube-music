@@ -2,7 +2,7 @@
 # YouTube Music リモートデスクトップ 正常停止スクリプト
 
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 echo "=== [1/2] Firefox を正常終了させています... ==="
 podman exec -i yt_music_kiosk python3 - << 'PYEOF'

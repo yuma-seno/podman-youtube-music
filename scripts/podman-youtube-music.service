@@ -9,10 +9,10 @@ RemainAfterExit=yes
 WorkingDirectory=@INSTALL_DIR@
 
 # 起動: 既存コンテナのクリーンアップ → 新規起動
-ExecStart=@INSTALL_DIR@/start.sh
+ExecStart=@INSTALL_DIR@/scripts/start.sh
 
 # 停止: Firefox を正常終了させてから Cookie を保存 → コンテナ停止
-ExecStop=@INSTALL_DIR@/stop.sh
+ExecStop=@INSTALL_DIR@/scripts/stop.sh
 
 # Firefox が Cookie を書き込む時間 + コンテナ停止時間
 TimeoutStopSec=30

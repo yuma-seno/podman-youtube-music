@@ -76,10 +76,8 @@ ACME_EMAIL=your@email.com
 ### 2. イメージをビルドして起動
 
 ```bash
-./start.sh
-```
-
-初回はDockerイメージのビルドと Let's Encrypt 証明書の取得が行われます（数分かかる場合があります）。
+./scripts/start.sh
+``` 証明書の取得が行われます（数分かかる場合があります）。
 
 ### 3. Selkies でYouTube Musicにログイン
 
@@ -97,7 +95,7 @@ Selkies のデスクトップ画面が表示されたら、Firefox の YouTube M
 PC起動時に自動でコンテナを起動し、シャットダウン時に Firefox を正常終了させてからコンテナを停止します。
 
 ```bash
-./install.sh
+./scripts/install.sh
 ```
 
 インストーラーが以下を自動で行います：
@@ -115,20 +113,20 @@ PC起動時に自動でコンテナを起動し、シャットダウン時に Fi
 
 | 操作 | コマンド |
 |---|---|
-| 再起動（更新時など） | `./start.sh` |
-| **正常停止**（シャットダウン前） | `./stop.sh` または `systemctl --user stop podman-youtube-music` |
+| 再起動（更新時など） | `./scripts/start.sh` |
+| **正常停止**（シャットダウン前） | `./scripts/stop.sh` または `systemctl --user stop podman-youtube-music` |
 | 状態確認 | `systemctl --user status podman-youtube-music` |
-| アンインストール | `./uninstall.sh` |
+| アンインストール | `./scripts/uninstall.sh` |
 
 > [!IMPORTANT]
-> PCをシャットダウンする場合は systemd が自動で `stop.sh` を実行します。
-> ただし手動で停止するときは必ず `./stop.sh` を使ってください。
+> PCをシャットダウンする場合は systemd が自動で `scripts/stop.sh` を実行します。
+> ただし手動で停止するときは必ず `./scripts/stop.sh` を使ってください。
 > `podman stop` や `podman-compose down` を直接実行すると Firefox が強制終了（SIGKILL）され、
 > Firefoxプロファイルが正しく保存されない可能性があります。
 
 ---
 
-## 起動スクリプト (`start.sh`) の動作
+## 起動スクリプト (`scripts/start.sh`) の動作
 
 ```
 [0/4] 実行ユーザー確認       → UID/GID を取得してコンテナに渡す
@@ -145,11 +143,12 @@ PC起動時に自動でコンテナを起動し、シャットダウン時に Fi
 ```
 .
 ├── compose.yaml                        # コンテナ定義
-├── start.sh                            # 起動スクリプト
-├── stop.sh                             # 正常停止スクリプト
-├── install.sh                          # systemd サービスのインストール
-├── uninstall.sh                        # systemd サービスのアンインストール
-├── podman-youtube-music.service        # systemd ユーザーサービステンプレート
+├── scripts/
+│   ├── start.sh                        # 起動スクリプト
+│   ├── stop.sh                         # 正常停止スクリプト
+│   ├── install.sh                      # systemd サービスのインストール
+│   ├── uninstall.sh                    # systemd サービスのアンインストール
+│   └── podman-youtube-music.service    # systemd ユーザーサービステンプレート
 ├── .env.example                        # 環境変数テンプレート
 ├── caddy/
 │   ├── Dockerfile                      # DuckDNSモジュール付きCaddyビルド
@@ -283,10 +282,10 @@ ls ./config/.mozilla/firefox/
 
 ### Selkies 画面が表示されない
 
-`start.sh` を再実行してください。ロックファイルが自動でクリーンアップされます。
+`scripts/start.sh` を再実行してください。ロックファイルが自動でクリーンアップされます。
 
 ```bash
-./start.sh
+./scripts/start.sh
 ```
 
 ### コンテナが起動しない
@@ -303,5 +302,4 @@ podman logs yt_caddy
 - `caddy_data` ボリュームを削除して再試行：
   ```bash
   podman volume rm podman-youtube-music_caddy_data
-  ./start.sh
-  ```
+  ./scripts/start.sh

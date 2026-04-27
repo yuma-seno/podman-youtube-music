@@ -2,7 +2,7 @@
 # YouTube Music Podman Service インストールスクリプト
 
 set -e
-INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SERVICE_NAME="podman-youtube-music"
 SERVICE_FILE="${SERVICE_NAME}.service"
 SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
@@ -37,7 +37,7 @@ mkdir -p "${SYSTEMD_USER_DIR}"
 
 # テンプレートの @INSTALL_DIR@ を実際のパスに置換して生成
 sed "s|@INSTALL_DIR@|${INSTALL_DIR}|g" \
-    "${INSTALL_DIR}/${SERVICE_FILE}" \
+    "$(dirname "$0")/${SERVICE_FILE}" \
     > "${SYSTEMD_USER_DIR}/${SERVICE_FILE}"
 
 echo "      → ${SYSTEMD_USER_DIR}/${SERVICE_FILE}"

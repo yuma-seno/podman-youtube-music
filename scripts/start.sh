@@ -2,7 +2,7 @@
 # YouTube Music リモートデスクトップ 起動スクリプト
 
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 PROJECT="podman-youtube-music"
 NETWORK="${PROJECT}_default"
