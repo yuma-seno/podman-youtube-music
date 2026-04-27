@@ -11,7 +11,7 @@ echo ""
 
 # ── サービス停止・無効化 ───────────────────────────────────────────────────────
 if systemctl --user is-active "${SERVICE_NAME}.service" &>/dev/null; then
-    echo "[1/3] サービスを停止しています (Chrome を正常終了させます)..."
+    echo "[1/3] サービスを停止しています (Firefox を正常終了させます)..."
     systemctl --user stop "${SERVICE_NAME}.service"
 else
     echo "[1/3] サービスはすでに停止しています。"

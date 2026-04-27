@@ -12,12 +12,12 @@
     # 1. メディア操作パネルとWebhookへのアクセス
     # https://[ドメイン]:8443/media/ にアクセスした場合
     handle_path /media* {
-        reverse_proxy chromium:8080
+        reverse_proxy firefox:8080
     }
 
-    # 2. メインのKasmVNC画面へのアクセス
+    # 2. メインの Selkies デスクトップ画面へのアクセス
     # 上記以外のすべてのアクセス (デフォルト)
     handle {
-        reverse_proxy chromium:3000
+        reverse_proxy firefox:3000
     }
 }

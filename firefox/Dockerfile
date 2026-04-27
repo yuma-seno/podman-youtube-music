@@ -6,4 +6,3 @@ RUN chmod o+x /usr/bin/lsiown
 RUN apt-get update \
     && apt-get install -y --no-install-recommends playerctl \
     && rm -rf /var/lib/apt/lists/*
-RUN /lsiopy/bin/pip3 install websocket-client

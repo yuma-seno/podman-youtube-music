@@ -20,7 +20,6 @@ import stat
 import subprocess
 import sys
 import time
-import urllib.request
 
 # ─── HTML ────────────────────────────────────────────────────────────────────
 HTML_CONTENT = """\
@@ -195,8 +194,8 @@ HTML_CONTENT = """\
         .catch(function () {});
     }
 
-    // 3秒ごとの定期ポーリング
-    setInterval(pollStatus, 3000);
+    // 1秒ごとの定期ポーリング
+    setInterval(pollStatus, 1000);
 
     var doToggle = function () {
       if (_toggling) return;
@@ -215,12 +214,12 @@ HTML_CONTENT = """\
 
     var doNext = function () {
       fetch(BASE + 'next').then(function(r){ return r.json(); })
-      .then(function() { setTimeout(pollStatus, 500); }); // 曲送り後に即座に情報を再取得
+      .then(function() { setTimeout(pollStatus, 300); }); // 曲送り後に即座に情報を再取得
     };
 
     var doPrev = function () {
       fetch(BASE + 'prev').then(function(r){ return r.json(); })
-      .then(function() { setTimeout(pollStatus, 500); }); // 曲戻し後に即座に情報を再取得
+      .then(function() { setTimeout(pollStatus, 300); }); // 曲戻し後に即座に情報を再取得
     };
 
     navigator.mediaSession.setActionHandler('play',          doToggle);
@@ -285,16 +284,15 @@ def get_ytm_status():
     }
 
 # ─── 統合制御 ─────────────────────────────────────────────────────────────────
-_is_playing = False
-
 def toggle_ytm():
-    global _is_playing
     ok, _ = _playerctl(['play-pause'])
     if ok:
         time.sleep(0.15)
         s = get_ytm_status()
-        _is_playing = s['playing'] if s and s['playing'] is not None else (not _is_playing)
-    return ok, _is_playing
+        playing = s['playing'] if s else None
+    else:
+        playing = None
+    return ok, playing
 
 def next_track():
     ok, _ = _playerctl(['next'])
@@ -308,6 +306,14 @@ def prev_track():
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args): pass # ログを減らす
 
+    def _send_json(self, data):
+        body = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _serve(self):
         path = self.path.split('?')[0].rstrip('/')
         if path in ('', '/'):
@@ -319,49 +325,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path == '/status':
             s = get_ytm_status()
-            if s and s['playing'] is not None:
-                playing = s['playing']
-                title   = s.get('title')
-                artist  = s.get('artist')
-            else:
-                playing = _is_playing
-                title, artist = None, None
-            body = json.dumps({'playing': playing, 'title': title, 'artist': artist}).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            playing = s['playing'] if s else None
+            title   = s['title']  if s else None
+            artist  = s['artist'] if s else None
+            self._send_json({'playing': playing, 'title': title, 'artist': artist})
         elif path == '/toggle':
             ok, playing = toggle_ytm()
-            body = json.dumps({'ok': ok, 'playing': playing}).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json({'ok': ok, 'playing': playing})
         elif path == '/next':
-            ok = next_track()
-            body = json.dumps({'ok': ok}).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json({'ok': next_track()})
         elif path == '/prev':
-            ok = prev_track()
-            body = json.dumps({'ok': ok}).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json({'ok': prev_track()})
         else:
             self.send_response(404)
             self.end_headers()
 
-    do_GET  = _serve
-    do_POST = _serve
+    do_GET = _serve
 
 socketserver.TCPServer.allow_reuse_address = True
 print('[media-server] :8080 で起動します', file=sys.stderr)
