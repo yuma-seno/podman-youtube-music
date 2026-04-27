@@ -14,7 +14,6 @@ import glob
 import http.server
 import json
 import os
-import shlex
 import socketserver
 import stat
 import subprocess
@@ -243,42 +242,38 @@ HTML_CONTENT = """\
 
 # ─── playerctl (MPRIS2 via DBus) ─────────────────────────────────────────────
 def _get_dbus_addr():
-    """abc ユーザー (uid=1000) の DBus セッションソケットを /tmp/dbus-* から探す"""
+    """DBus セッションソケットを /tmp/dbus-* から探す"""
     for s in glob.glob('/tmp/dbus-*'):
         try:
-            st = os.stat(s)
-            if st.st_uid == 1000 and stat.S_ISSOCK(st.st_mode):
+            if stat.S_ISSOCK(os.stat(s).st_mode):
                 return f'unix:path={s}'
         except Exception:
             pass
     return None
 
 def _playerctl(args):
-    """abc ユーザーとして playerctl コマンドを実行して (ok, stdout) を返す"""
+    """playerctl コマンドを実行して (ok, stdout) を返す"""
     addr = _get_dbus_addr()
     if not addr:
         return False, ''
-    shell_cmd = (
-        f'DBUS_SESSION_BUS_ADDRESS={shlex.quote(addr)} '
-        f'playerctl --player=firefox,%any '
-        + ' '.join(shlex.quote(a) for a in args)
-    )
+    env = {'DBUS_SESSION_BUS_ADDRESS': addr, 'PATH': '/usr/local/bin:/usr/bin:/bin'}
     r = subprocess.run(
-        ['su', 'abc', '-s', '/bin/sh', '-c', shell_cmd],
-        capture_output=True, timeout=3, cwd='/', text=True
+        ['playerctl', '--player=firefox,%any'] + args,
+        env=env, capture_output=True, timeout=3, cwd='/', text=True
     )
     return r.returncode == 0, r.stdout.strip()
 
 def get_ytm_status():
-    """playerctl (MPRIS2) で再生状態と曲名を取得"""
-    ok, status_str = _playerctl(['status'])
-    if not ok:
+    """playerctl (MPRIS2) で再生状態と曲名を 1 回のコマンドで取得"""
+    ok, out = _playerctl(['metadata', '--format', '{{status}}|||{{title}}|||{{artist}}'])
+    if not ok or not out:
         return None
-    playing = (status_str == 'Playing')
-    _, title  = _playerctl(['metadata', 'title'])
-    _, artist = _playerctl(['metadata', 'artist'])
+    parts = out.split('|||', 2)
+    status = parts[0]
+    title  = parts[1] if len(parts) > 1 else ''
+    artist = parts[2] if len(parts) > 2 else ''
     return {
-        'playing': playing,
+        'playing': status == 'Playing',
         'title':   title  or None,
         'artist':  artist or None,
     }
@@ -358,30 +353,25 @@ if [ -f "${SELKIES_WEB}/index.html" ] && ! grep -q "<title>" "${SELKIES_WEB}/ind
     sed -i 's|</head>|<title>Youtube Music VNC</title></head>|' "${SELKIES_WEB}/index.html"
 fi
 
-# manifest.json の名前を更新
+# manifest.json の名前とサイズを更新
 if [ -f "${SELKIES_WEB}/manifest.json" ]; then
     sed -i 's|"name": "Firefox"|"name": "Youtube Music VNC"|' "${SELKIES_WEB}/manifest.json"
     sed -i 's|"short_name": "Firefox"|"short_name": "YTM"|' "${SELKIES_WEB}/manifest.json"
+    sed -i 's|"sizes": "180x180"|"sizes": "192x192"|' "${SELKIES_WEB}/manifest.json"
 fi
 
-# YouTube Music アイコンをダウンロードして icon.png を置き換え
-python3 - << 'ICONEOF'
-import urllib.request, sys
-try:
-    urllib.request.urlretrieve(
-        'https://music.youtube.com/img/favicon_144.png',
-        '/usr/share/selkies/web/icon.png'
-    )
-    print('[init] YouTube Music アイコンを設定しました', file=sys.stderr)
-except Exception as e:
-    print(f'[init] アイコン取得失敗 (デフォルト使用): {e}', file=sys.stderr)
-ICONEOF
+# YouTube Music アイコンを Selkies web ディレクトリにコピー
+# (アイコンは Dockerfile で /usr/local/share/ytm-icon.png に保存済み)
+if [ -f "/usr/local/share/ytm-icon.png" ]; then
+    cp -f /usr/local/share/ytm-icon.png "${SELKIES_WEB}/icon.png"
+fi
 
 # ─── s6 サービス登録 ──────────────────────────────────────────────────────────
 mkdir -p /etc/services.d/svc-media-server
 cat << 'EOF' > /etc/services.d/svc-media-server/run
 #!/usr/bin/execlineb -P
 fdmove -c 2 1
+s6-setuidgid abc
 /lsiopy/bin/python3 /usr/local/bin/media-server.py
 EOF
 chmod +x /etc/services.d/svc-media-server/run
